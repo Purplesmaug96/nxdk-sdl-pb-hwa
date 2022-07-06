@@ -37,6 +37,9 @@
 #define PB_MAXRAM 0x03FFAFFF
 #define PB_MAXZ 16777215.f
 
+#define PB_DMA_CHANNEL_DEFAULT 9
+#define PB_DMA_CHANNEL_A 3
+
 #undef MASK
 #define MASK(mask, val) (((val) << (__builtin_ffs(mask)-1)) & (mask))
 
@@ -60,17 +63,26 @@ typedef struct
     SDL_BlendMode cur_blendmode;
     SDL_Texture *cur_texture;
     SDL_Rect cur_viewport;
+    SDL_Rect cur_cliprect;
     Uint32 cur_color_word;
     float cur_color[4];
-    unsigned int buf_width;
-    unsigned int buf_height;
+    unsigned int fb_width;
+    unsigned int fb_height;
+    unsigned int fb_color_fmt;
+    unsigned int fb_color_pitch;
+    unsigned int fb_depth_fmt;
+    unsigned int fb_depth_pitch;
+    unsigned int target_width;
+    unsigned int target_height;
+    SDL_Texture *target;
     SDL_bool vsync;
     SDL_bool rendering;
 } XBOX_PB_RenderData;
 
 typedef struct
 {
-    unsigned int format;
+    unsigned int tex_format;
+    unsigned int surf_format;
     unsigned int width;
     unsigned int height;
     unsigned int size;
@@ -126,7 +138,7 @@ MatrixMultiply(float *restrict out, const float *a, const float *b)
 }
 
 static inline unsigned int
-PixelFormatToNV(const Uint32 format, const int swizzled)
+PixelFormatToNVTexFormat(const Uint32 format)
 {
     switch (format) {
     case SDL_PIXELFORMAT_RGB565:
@@ -145,6 +157,19 @@ PixelFormatToNV(const Uint32 format, const int swizzled)
         return NV097_SET_TEXTURE_FORMAT_COLOR_LU_IMAGE_A8R8G8B8;
     default:
         return 0;
+    }
+}
+
+static inline unsigned int
+PixelFormatToNVSurfFormat(const Uint32 format)
+{
+    switch (format) {
+    case SDL_PIXELFORMAT_RGB565:
+        return NV097_SET_SURFACE_FORMAT_COLOR_LE_R5G6B5;
+    case SDL_PIXELFORMAT_ARGB8888:
+        return NV097_SET_SURFACE_FORMAT_COLOR_LE_A8R8G8B8;
+    default:
+        return 0; /* TODO: can we support more? */
     }
 }
 
@@ -229,7 +254,7 @@ SetTexture(XBOX_PB_RenderData *data, SDL_Texture *texture)
             XBOX_PB_TextureData *xtex = (XBOX_PB_TextureData *) texture->driverdata;
             Uint32 *p = pb_begin();
             p = pb_push1(p, NV20_TCL_PRIMITIVE_3D_TX_ENABLE(0), 0x40000000); /* enable tex0 */
-            p = pb_push2(p, NV20_TCL_PRIMITIVE_3D_TX_OFFSET(0), xtex->addr, xtex->format);
+            p = pb_push2(p, NV20_TCL_PRIMITIVE_3D_TX_OFFSET(0), xtex->addr, xtex->tex_format);
             p = pb_push1(p, NV20_TCL_PRIMITIVE_3D_TX_NPOT_PITCH(0), xtex->pitch << 16);
             p = pb_push1(p, NV20_TCL_PRIMITIVE_3D_TX_NPOT_SIZE(0), (xtex->width << 16) | xtex->height);
             p = pb_push1(p, NV20_TCL_PRIMITIVE_3D_TX_FILTER(0), xtex->filter);
@@ -261,6 +286,28 @@ SetViewport(XBOX_PB_RenderData *data, const SDL_Rect vrect)
         p = pb_push_transposed_matrix(p, NV097_SET_PROJECTION_MATRIX, mproj);
         pb_end(p);
         data->cur_viewport = vrect;
+    }
+}
+
+static inline void
+SetClipRect(XBOX_PB_RenderData *data, const SDL_bool enabled, SDL_Rect crect)
+{
+    if (!enabled) {
+        /* clipping disabled -> cliprect == viewrect */
+        crect.x = 0;
+        crect.y = 0;
+        crect.w = data->cur_viewport.w;
+        crect.h = data->cur_viewport.h;
+    }
+    if (SDL_memcmp(&data->cur_cliprect, &crect, sizeof (SDL_Rect)) != 0) {
+        /* crect is specified relative to the viewport */
+        const Uint32 x = data->cur_viewport.x + crect.x;
+        const Uint32 y = data->cur_viewport.y + crect.y;
+        Uint32 *p = pb_begin();
+        p = pb_push1(p, NV097_SET_SURFACE_CLIP_HORIZONTAL, (crect.w << 16) + x);
+        p = pb_push1(p, NV097_SET_SURFACE_CLIP_VERTICAL, (crect.h << 16) + y);
+        pb_end(p);
+        data->cur_cliprect = crect;
     }
 }
 
@@ -321,8 +368,9 @@ StartDrawing(XBOX_PB_RenderData *data)
 {
     if (!data->rendering) {
         pb_reset();
-        pb_target_back_buffer();
-        pb_erase_depth_stencil_buffer(0, 0, data->buf_width, data->buf_height);
+        if (!data->target)
+            pb_target_back_buffer();
+        pb_erase_depth_stencil_buffer(0, 0, data->fb_width, data->fb_height);
         while (pb_busy());
         data->rendering = SDL_TRUE;
     }
@@ -346,42 +394,63 @@ XBOX_PB_WindowEvent(SDL_Renderer *renderer, const SDL_WindowEvent * event)
 static int
 XBOX_PB_CreateTexture(SDL_Renderer *renderer, SDL_Texture *texture)
 {
-    const unsigned int fmt = PixelFormatToNV(texture->format, SDL_FALSE);
+    XBOX_PB_RenderData *xdata = renderer->driverdata;
+    XBOX_PB_TextureData *xtex;
+    const SDL_bool is_target = (texture->access == SDL_TEXTUREACCESS_TARGET);
+    const unsigned int align = is_target ? PAGE_SIZE : 16;
+    unsigned int surf_fmt = 0;
+    const unsigned int tex_fmt = PixelFormatToNVTexFormat(texture->format);
 
-    if (fmt == 0)
-    {
+    if (tex_fmt == 0) {
         /* unsupported format; don't even bother with anything else */
         SDL_SetError("unsupported texture format: 0x%08x", texture->format);
         return -1;
     }
 
-    XBOX_PB_TextureData *xtex = (XBOX_PB_TextureData *) SDL_calloc(1, sizeof(XBOX_PB_TextureData));
+    if (is_target) {
+        surf_fmt = PixelFormatToNVSurfFormat(texture->format);
+        if (surf_fmt == 0) {
+            /* can't render into this format */
+            SDL_SetError("unsupported rendertarget format: 0x%08x", texture->format);
+            return -1;
+        }
+    }
 
-    if (!xtex)
-    {
+    SDL_assert(xdata);
+
+    xtex = (XBOX_PB_TextureData *) SDL_calloc(1, sizeof(XBOX_PB_TextureData));
+
+    if (!xtex) {
         SDL_OutOfMemory();
         return -1;
     }
 
     xtex->width = texture->w;
     xtex->height = texture->h;
-    xtex->format = MASK(NV097_SET_TEXTURE_FORMAT_COLOR, fmt) |
-        MASK(NV097_SET_TEXTURE_FORMAT_DIMENSIONALITY, 2) |
-        MASK(NV097_SET_TEXTURE_FORMAT_MIPMAP_LEVELS, 1) |
-        0xA; /* dma context and other shit here, presumably */
     xtex->filter = (texture->scaleMode == SDL_ScaleModeNearest) ? 0x01014000 : 0x02072000;
     xtex->bytespp = SDL_BYTESPERPIXEL(texture->format);
     xtex->pitch = xtex->bytespp * xtex->width;
     xtex->size = xtex->height * xtex->pitch;
-    xtex->data = MmAllocateContiguousMemoryEx(xtex->size, 0, PB_MAXRAM, 16, 0x404);
     xtex->is_aligned = (xtex->size & 63) == 0;
 
-    if (!xtex->data)
-    {
+    xtex->data = MmAllocateContiguousMemoryEx(xtex->size, 0, PB_MAXRAM, align, 0x404);
+
+    if (!xtex->data) {
         SDL_free(xtex);
         SDL_OutOfMemory();
         return -1;
     }
+
+    xtex->tex_format = MASK(NV097_SET_TEXTURE_FORMAT_COLOR, tex_fmt) |
+        MASK(NV097_SET_TEXTURE_FORMAT_DIMENSIONALITY, 2) |
+        MASK(NV097_SET_TEXTURE_FORMAT_MIPMAP_LEVELS, 1) |
+        0xA; /* dma context and what else? */
+
+    /* depth is not used, so it points to our main depth buffer */
+    xtex->surf_format = (surf_fmt == 0) ? 0 :
+        MASK(NV097_SET_SURFACE_FORMAT_COLOR, surf_fmt) |
+        MASK(NV097_SET_SURFACE_FORMAT_ZETA, xdata->fb_depth_fmt) |
+        MASK(NV097_SET_SURFACE_FORMAT_TYPE, NV097_SET_SURFACE_FORMAT_TYPE_PITCH);
 
     xtex->addr = ((unsigned int) xtex->data) & 0x03FFFFFF;
 
@@ -453,6 +522,56 @@ XBOX_PB_UnlockTexture(SDL_Renderer *renderer, SDL_Texture *texture)
 static int
 XBOX_PB_SetRenderTarget(SDL_Renderer *renderer, SDL_Texture *texture)
 {
+    Uint32 *p;
+    Uint32 dma, addr, cpitch, zpitch, width, height, fmt;
+    XBOX_PB_RenderData *xdata = renderer->driverdata;
+
+    SDL_assert(xdata);
+
+    if (!texture) {
+        /* reset to pbkit's default draw buffer */
+        dma = PB_DMA_CHANNEL_DEFAULT;
+        addr = 0;
+        cpitch = xdata->fb_color_pitch;
+        width = xdata->fb_width;
+        height = xdata->fb_height;
+        /* this assumes the user didn't call pb_set_color_format for some reason */
+        fmt = MASK(NV097_SET_SURFACE_FORMAT_COLOR, xdata->fb_color_fmt) |
+            MASK(NV097_SET_SURFACE_FORMAT_ZETA, xdata->fb_depth_fmt) |
+            MASK(NV097_SET_SURFACE_FORMAT_TYPE, NV097_SET_SURFACE_FORMAT_TYPE_PITCH);
+    } else {
+        XBOX_PB_TextureData *xtex = (XBOX_PB_TextureData *) texture->driverdata;
+        SDL_assert(xtex);
+        dma = PB_DMA_CHANNEL_A;
+        addr = xtex->addr;
+        cpitch = xtex->pitch;
+        width = xtex->width;
+        height = xtex->height;
+        fmt = xtex->surf_format;
+    }
+
+    zpitch = xdata->fb_depth_pitch;
+
+    p = pb_begin();
+    p = pb_push1(p, NV097_SET_CONTEXT_DMA_COLOR, PB_DMA_CHANNEL_A);
+    p = pb_push1(p, NV097_SET_SURFACE_COLOR_OFFSET, addr);
+    p = pb_push1(p, NV097_SET_SURFACE_PITCH,
+        MASK(NV097_SET_SURFACE_PITCH_COLOR, cpitch) |
+        MASK(NV097_SET_SURFACE_PITCH_ZETA, zpitch));
+    p = pb_push1(p, NV097_NO_OPERATION, 0);
+    p = pb_push1(p, NV097_WAIT_FOR_IDLE, 0);
+    pb_end(p);
+
+    p = pb_begin();
+    p = pb_push1(p, NV097_SET_SURFACE_FORMAT, fmt);
+    p = pb_push1(p, NV097_SET_SURFACE_CLIP_HORIZONTAL, (width << 16));
+    p = pb_push1(p, NV097_SET_SURFACE_CLIP_VERTICAL, (height << 16));
+    pb_end(p);
+
+    xdata->target = texture;
+    xdata->target_width = width;
+    xdata->target_height = height;
+
     return 0;
 }
 
@@ -745,7 +864,7 @@ XBOX_PB_RunCommandQueue(SDL_Renderer *renderer, SDL_RenderCommand *cmd, void *ve
             }
 
             case SDL_RENDERCMD_SETCLIPRECT: {
-                /* !!! FIXME: don't know how to do scissor test yet */
+                SetClipRect(data, cmd->data.cliprect.enabled, cmd->data.cliprect.rect);
                 break;
             }
 
@@ -755,7 +874,7 @@ XBOX_PB_RunCommandQueue(SDL_Renderer *renderer, SDL_RenderCommand *cmd, void *ve
                 const Uint8 b = cmd->data.color.b;
                 const Uint8 a = cmd->data.color.a;
                 const Uint32 color = ((a << 24) | (r << 16) | (g << 8) | b);
-                pb_fill(0, 0, data->buf_width, data->buf_height, color);
+                pb_fill(0, 0, data->target_width, data->target_height, color);
                 break;
             }
 
@@ -921,17 +1040,24 @@ XBOX_PB_CreateRenderer(SDL_Window * window, Uint32 flags)
     renderer->driverdata = data;
     renderer->window = window;
 
-    data->buf_width = pb_back_buffer_width();
-    data->buf_height = pb_back_buffer_height();
+    data->target_width = data->fb_width = pb_back_buffer_width();
+    data->target_height = data->fb_height = pb_back_buffer_height();
+
+    /* TODO: figure out how to get current format in case it's not the default */
+    data->fb_color_pitch = pb_back_buffer_pitch();
+    data->fb_color_fmt = NV097_SET_SURFACE_FORMAT_COLOR_LE_A8R8G8B8;
+    data->fb_depth_pitch = data->fb_width * 4;
+    data->fb_depth_fmt = NV097_SET_SURFACE_FORMAT_ZETA_Z24S8;
 
     if (flags & SDL_RENDERER_PRESENTVSYNC) {
         data->vsync = SDL_TRUE;
         renderer->info.flags |= SDL_RENDERER_PRESENTVSYNC;
     }
 
-    /* set default viewport */
-    vrect = (SDL_Rect) { 0, 0, data->buf_width, data->buf_height };
+    /* set default viewport and cliprect */
+    vrect = (SDL_Rect) { 0, 0, data->fb_width, data->fb_height };
     SetViewport(data, vrect);
+    SetClipRect(data, SDL_FALSE, vrect);
 
     /* show screen */
     pb_show_front_screen();
