@@ -26,8 +26,8 @@
 
 /* Simple log messages in SDL */
 
-#include "SDL_error.h"
-#include "SDL_log.h"
+#include "../include/SDL_error.h"
+#include "../include/SDL_log.h"
 
 #if HAVE_STDIO_H
 #include <stdio.h>
@@ -35,6 +35,10 @@
 
 #if defined(__ANDROID__)
 #include <android/log.h>
+#endif
+
+#if defined(NXDK)
+#include <windows.h>
 #endif
 
 #define DEFAULT_PRIORITY                SDL_LOG_PRIORITY_CRITICAL
@@ -422,12 +426,25 @@ SDL_LogOutput(void *userdata, int category, SDL_LogPriority priority,
         fprintf(pFile, "%s: %s\n", SDL_priority_prefixes[priority], message);
         fclose (pFile);
     }
+<<<<<<< HEAD
 #elif defined(__VITA__)
     {
         FILE*        pFile;
         pFile = fopen ("ux0:/data/SDL_Log.txt", "a");
         fprintf(pFile, "%s: %s\n", SDL_priority_prefixes[priority], message);
         fclose (pFile);
+=======
+#elif defined(NXDK)
+    {
+        // Calculate length of both strings + Colon, space, new-line, null-terminator.
+        size_t length = strlen(SDL_priority_prefixes[priority]) + strlen(message) + 4;
+        char * text = SDL_stack_alloc(char, length);
+        if (text) {
+            SDL_snprintf(text, length, "%s: %s\n", SDL_priority_prefixes[priority], message);
+            OutputDebugStringA(text);
+            SDL_stack_free(text);
+        }
+>>>>>>> 7f2ecef0c2 (xbox: Added standard logging output)
     }
 #endif
 #if HAVE_STDIO_H
