@@ -20,6 +20,7 @@
 */
 #include "../../SDL_internal.h"
 
+#define SDL_VIDEO_RENDER_XBOX_PBKIT 1
 #if SDL_VIDEO_RENDER_XBOX_PBKIT
 
 #include "SDL_hints.h"
@@ -918,6 +919,9 @@ XBOX_PB_RunCommandQueue(SDL_Renderer *renderer, SDL_RenderCommand *cmd, void *ve
 
             case SDL_RENDERCMD_NO_OP:
                 break;
+            
+            case SDL_RENDERCMD_GEOMETRY:
+                break;
         }
 
         cmd = cmd->next;
@@ -1017,24 +1021,24 @@ XBOX_PB_CreateRenderer(SDL_Window * window, Uint32 flags)
         return NULL;
     }
 
-    renderer->WindowEvent = XBOX_PB_WindowEvent;
-    renderer->CreateTexture = XBOX_PB_CreateTexture;
-    renderer->UpdateTexture = XBOX_PB_UpdateTexture;
-    renderer->LockTexture = XBOX_PB_LockTexture;
-    renderer->UnlockTexture = XBOX_PB_UnlockTexture;
-    renderer->SetRenderTarget = XBOX_PB_SetRenderTarget;
-    renderer->QueueSetViewport = XBOX_PB_QueueSetViewport;
-    renderer->QueueSetDrawColor = XBOX_PB_QueueSetDrawColor;
-    renderer->QueueDrawPoints = XBOX_PB_QueueDrawPoints;
-    renderer->QueueDrawLines = XBOX_PB_QueueDrawPoints;  /* lines and points queue vertices the same way. */
-    renderer->QueueFillRects = XBOX_PB_QueueFillRects;
-    renderer->QueueCopy = XBOX_PB_QueueCopy;
-    renderer->QueueCopyEx = XBOX_PB_QueueCopyEx;
-    renderer->RunCommandQueue = XBOX_PB_RunCommandQueue;
-    renderer->RenderReadPixels = XBOX_PB_RenderReadPixels;
-    renderer->RenderPresent = XBOX_PB_RenderPresent;
-    renderer->DestroyTexture = XBOX_PB_DestroyTexture;
-    renderer->DestroyRenderer = XBOX_PB_DestroyRenderer;
+    renderer->WindowEvent = (void*)XBOX_PB_WindowEvent;
+    renderer->CreateTexture = (void*)XBOX_PB_CreateTexture;
+    renderer->UpdateTexture = (void*)XBOX_PB_UpdateTexture;
+    renderer->LockTexture = (void*)XBOX_PB_LockTexture;
+    renderer->UnlockTexture = (void*)XBOX_PB_UnlockTexture;
+    renderer->SetRenderTarget = (void*)XBOX_PB_SetRenderTarget;
+    renderer->QueueSetViewport = (void*)XBOX_PB_QueueSetViewport;
+    renderer->QueueSetDrawColor = (void*)XBOX_PB_QueueSetDrawColor;
+    renderer->QueueDrawPoints = (void*)XBOX_PB_QueueDrawPoints;
+    renderer->QueueDrawLines = (void*)XBOX_PB_QueueDrawPoints;  /* lines and points queue vertices the same way. */
+    renderer->QueueFillRects = (void*)XBOX_PB_QueueFillRects;
+    renderer->QueueCopy = (void*)XBOX_PB_QueueCopy;
+    renderer->QueueCopyEx = (void*)XBOX_PB_QueueCopyEx;
+    renderer->RunCommandQueue = (void*)XBOX_PB_RunCommandQueue;
+    renderer->RenderReadPixels = (void*)XBOX_PB_RenderReadPixels;
+    renderer->RenderPresent = (void*)XBOX_PB_RenderPresent;
+    renderer->DestroyTexture = (void*)XBOX_PB_DestroyTexture;
+    renderer->DestroyRenderer = (void*)XBOX_PB_DestroyRenderer;
     renderer->info = XBOX_PB_RenderDriver.info;
     renderer->info.flags = (SDL_RENDERER_ACCELERATED | SDL_RENDERER_TARGETTEXTURE);
     renderer->driverdata = data;

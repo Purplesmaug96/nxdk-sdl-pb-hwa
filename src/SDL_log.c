@@ -426,14 +426,13 @@ SDL_LogOutput(void *userdata, int category, SDL_LogPriority priority,
         fprintf(pFile, "%s: %s\n", SDL_priority_prefixes[priority], message);
         fclose (pFile);
     }
-<<<<<<< HEAD
 #elif defined(__VITA__)
     {
         FILE*        pFile;
         pFile = fopen ("ux0:/data/SDL_Log.txt", "a");
         fprintf(pFile, "%s: %s\n", SDL_priority_prefixes[priority], message);
         fclose (pFile);
-=======
+    }
 #elif defined(NXDK)
     {
         // Calculate length of both strings + Colon, space, new-line, null-terminator.
@@ -444,7 +443,6 @@ SDL_LogOutput(void *userdata, int category, SDL_LogPriority priority,
             OutputDebugStringA(text);
             SDL_stack_free(text);
         }
->>>>>>> 7f2ecef0c2 (xbox: Added standard logging output)
     }
 #endif
 #if HAVE_STDIO_H
