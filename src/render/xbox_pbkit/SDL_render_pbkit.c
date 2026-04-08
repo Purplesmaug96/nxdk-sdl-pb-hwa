@@ -697,7 +697,7 @@ XBOX_PB_QueueCopy(SDL_Renderer *renderer, SDL_RenderCommand *cmd, SDL_Texture *t
 static int
 XBOX_PB_QueueCopyEx(SDL_Renderer *renderer, SDL_RenderCommand *cmd, SDL_Texture *texture,
                const SDL_Rect * srcrect, const SDL_FRect * dstrect,
-               const double angle, const SDL_FPoint *center, const SDL_RendererFlip flip)
+               const double angle, const SDL_FPoint *center, const SDL_RendererFlip flip, float scale_x, float scale_y)
 {
     XBOX_PB_TextureData *xtex = (XBOX_PB_TextureData *) texture->driverdata;
     float *verts = (float *) SDL_AllocateRenderVertices(renderer, 16 * sizeof (float), 0, &cmd->data.draw.first);
@@ -1021,24 +1021,24 @@ XBOX_PB_CreateRenderer(SDL_Window * window, Uint32 flags)
         return NULL;
     }
 
-    renderer->WindowEvent = (void*)XBOX_PB_WindowEvent;
-    renderer->CreateTexture = (void*)XBOX_PB_CreateTexture;
-    renderer->UpdateTexture = (void*)XBOX_PB_UpdateTexture;
-    renderer->LockTexture = (void*)XBOX_PB_LockTexture;
-    renderer->UnlockTexture = (void*)XBOX_PB_UnlockTexture;
-    renderer->SetRenderTarget = (void*)XBOX_PB_SetRenderTarget;
-    renderer->QueueSetViewport = (void*)XBOX_PB_QueueSetViewport;
-    renderer->QueueSetDrawColor = (void*)XBOX_PB_QueueSetDrawColor;
-    renderer->QueueDrawPoints = (void*)XBOX_PB_QueueDrawPoints;
-    renderer->QueueDrawLines = (void*)XBOX_PB_QueueDrawPoints;  /* lines and points queue vertices the same way. */
-    renderer->QueueFillRects = (void*)XBOX_PB_QueueFillRects;
-    renderer->QueueCopy = (void*)XBOX_PB_QueueCopy;
-    renderer->QueueCopyEx = (void*)XBOX_PB_QueueCopyEx;
-    renderer->RunCommandQueue = (void*)XBOX_PB_RunCommandQueue;
-    renderer->RenderReadPixels = (void*)XBOX_PB_RenderReadPixels;
-    renderer->RenderPresent = (void*)XBOX_PB_RenderPresent;
-    renderer->DestroyTexture = (void*)XBOX_PB_DestroyTexture;
-    renderer->DestroyRenderer = (void*)XBOX_PB_DestroyRenderer;
+    renderer->WindowEvent = XBOX_PB_WindowEvent;
+    renderer->CreateTexture = XBOX_PB_CreateTexture;
+    renderer->UpdateTexture = XBOX_PB_UpdateTexture;
+    renderer->LockTexture = XBOX_PB_LockTexture;
+    renderer->UnlockTexture = XBOX_PB_UnlockTexture;
+    renderer->SetRenderTarget = XBOX_PB_SetRenderTarget;
+    renderer->QueueSetViewport = XBOX_PB_QueueSetViewport;
+    renderer->QueueSetDrawColor = XBOX_PB_QueueSetDrawColor;
+    renderer->QueueDrawPoints = XBOX_PB_QueueDrawPoints;
+    renderer->QueueDrawLines = XBOX_PB_QueueDrawPoints;  /* lines and points queue vertices the same way. */
+    renderer->QueueFillRects = XBOX_PB_QueueFillRects;
+    renderer->QueueCopy = XBOX_PB_QueueCopy;
+    renderer->QueueCopyEx = XBOX_PB_QueueCopyEx;
+    renderer->RunCommandQueue = XBOX_PB_RunCommandQueue;
+    renderer->RenderReadPixels = XBOX_PB_RenderReadPixels;
+    renderer->RenderPresent = XBOX_PB_RenderPresent;
+    renderer->DestroyTexture = XBOX_PB_DestroyTexture;
+    renderer->DestroyRenderer = XBOX_PB_DestroyRenderer;
     renderer->info = XBOX_PB_RenderDriver.info;
     renderer->info.flags = (SDL_RENDERER_ACCELERATED | SDL_RENDERER_TARGETTEXTURE);
     renderer->driverdata = data;
@@ -1070,23 +1070,23 @@ XBOX_PB_CreateRenderer(SDL_Window * window, Uint32 flags)
 }
 
 SDL_RenderDriver XBOX_PB_RenderDriver = {
-    .CreateRenderer = XBOX_PB_CreateRenderer,
-    .info = {
-        .name = "xbox_pbkit",
-        .flags = SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC | SDL_RENDERER_TARGETTEXTURE,
-        .num_texture_formats = 7,
-        .texture_formats = {
-            SDL_PIXELFORMAT_ARGB8888,
-            SDL_PIXELFORMAT_RGBA8888,
-            SDL_PIXELFORMAT_BGRA8888,
-            SDL_PIXELFORMAT_ABGR8888,
-            SDL_PIXELFORMAT_ARGB4444,
-            SDL_PIXELFORMAT_ARGB1555,
-            SDL_PIXELFORMAT_RGB565,
-        },
-        .max_texture_width = 2048,
-        .max_texture_height = 2048,
-     }
+    XBOX_PB_CreateRenderer,
+    {
+     "xbox_pbkit",
+     SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC | SDL_RENDERER_TARGETTEXTURE,
+     8,
+     {
+      SDL_PIXELFORMAT_ARGB8888,
+      SDL_PIXELFORMAT_ABGR8888,
+      SDL_PIXELFORMAT_RGBA8888,
+      SDL_PIXELFORMAT_BGRA8888,
+      SDL_PIXELFORMAT_RGB888,
+      SDL_PIXELFORMAT_BGR888,
+      SDL_PIXELFORMAT_RGB565,
+      SDL_PIXELFORMAT_RGB555
+     },
+     0,
+     0}
 };
 
 #endif /* SDL_VIDEO_RENDER_XBOX_PBKIT */
