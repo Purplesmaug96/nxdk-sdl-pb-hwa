@@ -15,3 +15,12 @@ with README.md
 Enjoy!
 
 Sam Lantinga (slouken@libsdl.org)
+
+
+# Changes
+
+This fork adds a hw-accelerated renderer for the original xbox with NXDK (work done by https://github.com/jroc-hb/nxdk-sdl-pb-hwa), and i have rebased the branch to another person's rebase of nxdk's sdl to sdl2.0.22 (https://github.com/Quantx/nxdk-sdl/tree/nxdk-sdl-2.0.22).
+
+To configure whether to use the hw-accelerated renderer, change the "#define SDL_VIDEO_RENDER_XBOX_PBKIT" in include/xbox_pbkit_config.h to true/false (default is false).
+
+To use, make it a submodule in your nxdk repo, then build with NXDK_SDL=y make in the nxdk root.

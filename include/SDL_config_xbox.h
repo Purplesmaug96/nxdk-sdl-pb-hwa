@@ -134,7 +134,7 @@
 #define SDL_VIDEO_DRIVER_XBOX  1
 
 /* Enable the Xbox pbkit renderer (src/renderer/xbox_pbkit/\*.c) */
-#define SDL_VIDEO_RENDER_XBOX_PBKIT 1
+#include "xbox_pkbit_config.h"
 
 /* Enable the dummy filesystem driver (src/filesystem/dummy/\*.c) */
 #define SDL_FILESYSTEM_DUMMY  1
